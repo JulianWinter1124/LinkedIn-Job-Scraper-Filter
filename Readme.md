@@ -1,3 +1,17 @@
+# What does this do?
+### This Notebook let's you filter your Linkedin job queries even further
+- Don't want consultant jobs?
+- Want to put your masters degree to good use and look for jobs that require one exclusively?
+- Want to use advanced filters like document embeddings paired with a neural net?
+
+**&#8594; Define custom filters and display only matching jobs to reduce your time looking through job entries.**
+## Before:
+![before](./normal_query.png)
+## After:
+![after](./filtered_query.png)
+
+# Notebook:
+
 ```python
 import requests
 from IPython.display import HTML, IFrame
