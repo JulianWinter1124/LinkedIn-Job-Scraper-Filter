@@ -88,7 +88,7 @@ def cached_exception_request(req_fn, cache_file_path, redownload=False, cache=Tr
             except requests.exceptions.RequestException as e:
                 logging.error("Python requests error:", e)            
             tries += 1
-            
+
     else:
         logging.info(f'Loading cached entry {req_fn}')
         with open(cache_file_path, 'r') as cf:
@@ -122,7 +122,7 @@ def cached_exception_api_request(req_fn, cache_file_path, redownload=False, cach
             except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError) as e:
                 logging.error("Python requests error:", e)            
             tries += 1
-            
+
     else:
         logging.info(f'Loading cached entry {req_fn}')
         with open(cache_file_path, 'r') as cf:
@@ -165,7 +165,7 @@ def job_search(keyword_list:list, location:list, geoId:str='', locationId:str=''
     return session.get(base_url + param_string, allow_redirects=False, headers=headers)
 
 def job_search_scroll(keyword_list:list, location:list, geoId:str='', locationId:str='', distance=25, filter_company:list=[], filter_geoId:list=[], filter_jobtype=['F'], filter_joblevel=['2'], pageNum=0, **kwargs):
-    
+
     headers = {
         'DNT': '1',
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.64 Safari/537.36',
@@ -257,17 +257,23 @@ def retrieve_jobs_fn(start):
     return job_search_scroll(**query, start=start)
 #retrieve_jobs_fn = lambda p: job_search_scroll(**query, start=p)
 
-ret = cached_exception_request(job_search, '/home/julian/Downloads/test/main_page.html', redownload=True, **query)
+ret = cached_exception_request(job_search, 'output/main_page.html', redownload=True, **query)
 bsg = BeautifulSoup(ret)
 job_count = int(bsg.find('span', "results-context-header__job-count").text)
 ```
 
 
 ```python
+#currentJobId=3130239556&distance=25&f_E=2&f_F=it%2Ceng%2Cbd%2Csale%2Crsch%2Canls%2Cdist%2Chr&f_JT=F&f_TPR=r604800&f_WT=1%2C3&geoId=106491352&keywords=machine%20learning%20engineer%20python&sortBy=R
 query = {
-    'keyword_list' : 'Machine Learning Engineer'.split(' '),
-    'location' : 'Düsseldorf, Nordrhein-Westfalen, Deutschland'.split(' '),
+    'keyword_list' : 'Machine Learning Engineer Python'.split(' '),
+    'currentJobId': 3130239556,
+    'location' : None, #'Düsseldorf, Nordrhein-Westfalen, Deutschland'.split(' '),
     'geoId' : '106491352',
+    'distance': '25',
+    'f_E': 2,
+    'f_WT': 1,
+    'f_JT': 'F',
     'position' : 1,
     'pageNum' : 0
 }
@@ -275,7 +281,7 @@ def retrieve_jobs_fn(start):
     return job_search_scroll(**query, start=start)
 #retrieve_jobs_fn = lambda p: job_search_scroll(**query, start=p)
 
-ret = cached_exception_request(job_search, '/home/julian/Downloads/test/main_page.html', redownload=True, **query)
+ret = cached_exception_request(job_search, 'output/main_page.html', redownload=True, **query)
 bsg = BeautifulSoup(ret)
 job_count = int(bsg.find('span', "results-context-header__job-count").text)
 ```
@@ -334,15 +340,29 @@ def jobcard_filter_title_restriction(card_soup):
 
 def jobcard_filter_universal(card_soup, filters, accum_fn=all):
     return accum_fn([f(card_soup) for f in filters])
-    
+
 # Job Description Filters
 def jobdescription_filter_consulting_restriction(html_text, soup, infos):
     description = '\n'.join(soup.find('div', class_='show-more-less-html__markup').find_all(text=True)).lower()
-    return not ("consult" in description or 'berat' in description)
+    return not ("consult" in description or 'berater' in description or 'beratung' in description)
 
+def jobdescription_filter_master_restriction(html_text, soup, infos):
+    description = '\n'.join(soup.find('div', class_='show-more-less-html__markup').find_all(text=True)).lower()
+    return "master" in description
 
+def jobdescription_filter_no_master_restriction(html_text, soup, infos):
+    description = '\n'.join(soup.find('div', class_='show-more-less-html__markup').find_all(text=True)).lower()
+    return not "master" in description
 
-def jobdescription_filter_universal(html_text, filters, acuum_fn):
+def jobdescription_filter_bachelor_restriction(html_text, soup, infos):
+    description = '\n'.join(soup.find('div', class_='show-more-less-html__markup').find_all(text=True)).lower()
+    return "bachelor" in description
+
+def jobdescription_filter_no_bachelor_restriction(html_text, soup, infos):
+    description = '\n'.join(soup.find('div', class_='show-more-less-html__markup').find_all(text=True)).lower()
+    return not "bachelor" in description
+
+def jobdescription_filter_universal(html_text, filters, accum_fn):
     bsjd = BeautifulSoup(html_text)
     return accum_fn([f(html_text, bsjd, None) for f in filters]) #TODO: Maybe parse universal info like for company filters
 
@@ -351,7 +371,7 @@ def always_yes(a):
     return True
 def always_no(a):
     return False
-    
+
 # company_filter_criteria = lambda t: company_filter_universal(t, [
 #     company_filter_size_restriction
 # ])
@@ -362,30 +382,40 @@ def always_no(a):
 #     jobdescription_filter_consulting_restriction
 # ])
 
+
+```
+
+## Download jobs:
+1) Retrieve joblist (~25 at a time)
+3) Retrieve company Info
+2) Retrieve job descriptions (skips job descriptions already retrieved)
+
+
+```python
 company_filter_criteria = always_yes
 company_json_filter_criteria = always_yes
 jobcard_filter_criteria = always_yes
 job_filter_criteria = always_yes
 ```
 
-## Download jobs:
-1) Retrieve joblist (~25 at a time)
-2) Retrieve job descriptions (skips job descriptions already retrieved)
-
 
 ```python
 current_job = 0
+retrieved_job_entries = []
 while current_job < job_count:
     fname = requests.utils.quote(f'retrieve_jobs?start={current_job}&{"&".join([f"{k}={v}" for k,v in query.items()])}', safe="%=&,+")
+    retrieved_job_entries.append(f'output/{fname}.html')
     page_res = cached_exception_request(
         retrieve_jobs_fn,
-        f'/home/julian/Downloads/test/{fname}.html',
-        redownload=True, start=current_job
+        retrieved_job_entries[-1],
+        redownload=True,
+        start=current_job
     )
     bsp = BeautifulSoup(page_res)
     job_basecards = bsp.find_all('div', class_=re.compile("base-card relative.*"))
     current_job += len(job_basecards)
     if len(job_basecards) == 0: #Safety measure (could make job_count obsolete)
+        print("no more jobs")
         break
     for i in range(len(job_basecards)):
         if jobcard_filter_criteria(job_basecards[i]): #Filter by job
@@ -394,18 +424,77 @@ while current_job < job_count:
             trackingId = job_basecards[i]['data-tracking-id']
             company_link = job_basecards[i].find('a', class_='hidden-nested-link')['href']
             company_name = company_link.split('?')[0].split('/')[-1]
-            #comp_res = cached_exception_request(company_request, f'/home/julian/Downloads/test/{company_name}.html', url=company_link)
-            comp_json = cached_exception_api_request(company_request, f'/home/julian/Downloads/test/{company_name}.json', name=company_name)
+            #comp_res = cached_exception_request(company_request, f'output/{company_name}.html', url=company_link)
+            comp_json = cached_exception_api_request(company_request, f'output/{company_name}.json', name=company_name)
             if company_json_filter_criteria(comp_json):
             #if company_filter_criteria(comp_res): #Filter based on criteria
-                job_res = cached_exception_request(job_inner_entry, f'/home/julian/Downloads/test/{jobId}.html', jobId=jobId, refId=refId, trackingId=trackingId)
+                job_res = cached_exception_request(job_inner_entry, f'output/{jobId}.html', jobId=jobId, refId=refId, trackingId=trackingId)
                 if job_filter_criteria(job_res):
                     pass
 ```
 
+## Display Jobs with filters
+1) get main page again (used cached from previous query)
+2) go through all (cached) jobs
+3) filter out any unwanted jobs and remove from HTML
+4) Display HTML ith IPython.Display
+5) Click to open in new tab!
+
 
 ```python
+main_page = cached_exception_request(job_search, 'output/main_page.html', redownload=False, **query)
+main_soup = BeautifulSoup(main_page)
+```
 
+
+```python
+company_filter_criteria = always_yes
+company_json_filter_criteria = always_yes
+jobcard_filter_criteria = always_yes
+job_filter_criteria = lambda t: jobdescription_filter_universal(t, [
+    #jobdescription_filter_consulting_restriction,
+    jobdescription_filter_master_restriction,
+    jobdescription_filter_no_bachelor_restriction,
+], accum_fn=all)
+```
+
+
+```python
+job_list = main_soup.find('ul', {'class':re.compile('jobs[-_]+search[-_]+results[-_]+list')})
+job_list.clear()#delete jobs on start page (included in retrieved jobs)
+filtered_job_count = 0
+for retrieved_jobs in retrieved_job_entries:
+    with open(retrieved_jobs) as f:
+        job_results = BeautifulSoup(f.read())
+    for li in job_results.body.findChildren('li', recursive=False):
+        job_basecards = li.find_all('div', class_=re.compile("base-card relative.*"))
+        if len(job_basecards) == 0: #Safety measure (could make job_count obsolete)
+            continue
+        for i in range(len(job_basecards)): #it's only one in this case
+            if jobcard_filter_criteria(job_basecards[i]): #Filter by job
+                jobId = job_basecards[i]['data-entity-urn'].split(':')[-1]
+                refId = job_basecards[i]['data-search-id']
+                trackingId = job_basecards[i]['data-tracking-id']
+                company_link = job_basecards[i].find('a', class_='hidden-nested-link')['href']
+                company_name = company_link.split('?')[0].split('/')[-1]
+                #comp_res = cached_exception_request(company_request, f'output/{company_name}.html', url=company_link)
+                if company_json_filter_criteria != always_yes:
+                    comp_json = cached_exception_api_request(company_request, f'output/{company_name}.json', name=company_name)
+                if company_json_filter_criteria(comp_json):
+                #if company_filter_criteria(comp_res): #Filter based on criteria
+                    job_res = cached_exception_request(job_inner_entry, f'output/{jobId}.html', jobId=jobId, refId=refId, trackingId=trackingId)
+                    if not job_filter_criteria(job_res):
+                        # li.decompose()
+                        pass
+                    else:
+                        job_list.append(li)
+                        filtered_job_count += 1
+main_soup.find('span', "results-context-header__job-count").string = str(filtered_job_count)
+```
+
+
+```python
+HTML(str(main_soup))
 ```
 
 
